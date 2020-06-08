@@ -1,0 +1,92 @@
+version: '3'
+volumes:
+  kong_data: {}
+networks:
+  kong-net:
+services:
+  kongdb:
+    image: postgres:12.2
+    container_name: kongdb
+    ports:
+      - 54320:5432
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "kong"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    restart: on-failure
+    stdin_open: true
+    tty: true
+    networks:
+      - kong-net
+    volumes:
+      - kong_data:/var/lib/postgresql/data
+  kong-migrations:
+    image: kong:latest
+    command: kong migrations bootstrap
+    depends_on:
+      - kongdb
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_DATABASE: kong
+      KONG_PG_HOST: kongdb
+      KONG_PG_PASSWORD: kong
+      KONG_PG_USER: kong
+      KONG_PLUGINS: oidc,dynamicupstream
+    networks:
+      - kong-net
+    restart: on-failure
+
+  kong-migrations-up:
+    image: kong:latest
+    command: kong migrations up && kong migrations finish
+    depends_on:
+      - kongdb
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_DATABASE: kong
+      KONG_PG_HOST: kongdb
+      KONG_PG_PASSWORD: kong
+      KONG_PG_USER: kong
+      KONG_PLUGINS: oidc,dynamicupstream
+    networks:
+      - kong-net
+    restart: on-failure
+
+  kong:
+    build: .
+    user: kong
+    depends_on:
+      - kongdb
+    environment:
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_LOG_LEVEL: debug
+      KONG_ADMIN_LISTEN: '0.0.0.0:8001'
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_DATABASE: postgres
+      KONG_PG_DATABASE: kong
+      KONG_PG_HOST: kongdb
+      KONG_PG_PASSWORD: kong
+      KONG_PG_USER: kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_PLUGINS: file-log,oidc,dynamicupstream
+      KONG_GO_PLUGINS_DIR: /go_plugins_dir
+    networks:
+      - kong-net
+    ports:
+      - "8000:8000/tcp"
+      - "8001:8001/tcp"
+      - "8443:8443/tcp"
+      - "8444:8444/tcp"
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: on-failure
